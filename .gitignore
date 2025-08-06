@@ -1,0 +1,8 @@
+__pycache__/
+.env
+*.pdf
+*.docx
+*.log
+.DS_Store
+.vscode/
+.idea/
