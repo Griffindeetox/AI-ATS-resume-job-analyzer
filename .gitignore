@@ -1,8 +1,5 @@
+venv/
 __pycache__/
-.env
-*.pdf
-*.docx
-*.log
+*.pyc
 .DS_Store
-.vscode/
-.idea/
+*.log
