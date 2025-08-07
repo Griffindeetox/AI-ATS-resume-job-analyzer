@@ -1,25 +1,36 @@
-# AI-ATS-resume-job-analyzer
-Land more interviews! AI tool that analyzes your resume against job posts and delivers ATS-friendly improvements
-# AI Resume & Job Analyzer for Tech Roles
+# 🧠 AI Resume & Job Analyzer for Tech Roles
 
-🎯 An AI-powered tool that compares your resume with job descriptions and helps you optimize your application.
+A smart ATS-style analyzer that compares a resume against a job description to highlight missing and matching keywords — helping job seekers improve match rates for technical roles.
 
-### Features
-- Resume & JD upload
-- Smart keyword matching
-- Match score and analysis
-- Cover letter summary tips
-
-### Tech Stack
-- Hugging Face Transformers
-- spaCy
-- Streamlit
-- Python
+Built with `Python`, `Streamlit`, and modern NLP techniques (`spaCy`, `nltk`).
 
 ---
 
-## How to Run Locally
+## 🚀 Features
+
+- ✅ Calculates keyword match percentage between resume and job description
+- ✅ Displays matched and missing keywords
+- ✅ Supports **PDF** and **.txt** resume formats
+- ✅ User-friendly drag-and-drop interface
+- ✅ Pre-trained skill extraction using `spaCy` and `nltk`
+- 🛠️ Easy to extend with role-specific keyword sets
+
+---
+
+## 📷 Demo
+
+> Drag and drop your resume and JD into the app to see keyword matches and resume strength.
+
+![Demo Screenshot](https://user-images.githubusercontent.com/your-uploaded-image-link-here)
+
+> Replace the link above with your GitHub-generated image URL (see notes below 👇)
+
+---
+
+## 🔧 Setup Instructions
+
+### 1. Clone the Repo
 
 ```bash
-pip install -r requirements.txt
-streamlit run app.py
+git clone https://github.com/your-username/AI-ATS-resume-job-analyzer.git
+cd AI-ATS-resume-job-analyzer
