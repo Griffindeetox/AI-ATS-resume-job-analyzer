@@ -19,11 +19,13 @@ Built with `Python`, `Streamlit`, and modern NLP techniques (`spaCy`, `nltk`).
 
 ## 📷 Demo
 
-> Drag and drop your resume and JD into the app to see keyword matches and resume strength.
+#### 🖼 Screenshot 1: Upload Resume & Job Description
 
-![Demo Screenshot](https://user-images.githubusercontent.com/your-uploaded-image-link-here)
+![Demo Screenshot 1](https://github.com/user-attachments/assets/4a977104-b697-43bc-aa1b-4e2d4d334f5d)
 
-> Replace the link above with your GitHub-generated image URL (see notes below 👇)
+#### 🖼 Screenshot 2: View Match Score & Keywords
+
+![Demo Screenshot 2](https://github.com/user-attachments/assets/41a398fc-c997-408f-abee-b32de4a5d561)
 
 ---
 
