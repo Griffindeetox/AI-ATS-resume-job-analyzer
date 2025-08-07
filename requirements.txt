@@ -4,3 +4,4 @@ torch
 spacy
 sentence-transformers
 nltk
+PyPDF2
