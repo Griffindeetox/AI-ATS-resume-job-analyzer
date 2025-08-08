@@ -11,6 +11,8 @@ st.set_page_config(
     page_icon="📄",  # Change emoji if you like
     layout="centered"
 )
+st.set_page_config(page_title="AI Resume & Job Analyzer", layout="centered")
+
 # Sidebar Instructions
 st.sidebar.header("📌 How to Use")
 st.sidebar.markdown("""
@@ -22,6 +24,7 @@ st.sidebar.markdown("""
    - ❌ Missing keywords  
 4. Adjust your resume to improve the score.
 """)
+
 # GitHub Repo Link
 st.sidebar.markdown("---")
 st.sidebar.markdown("💻 **View Source Code on GitHub:** [AI Resume & Job Analyzer](https://github.com/your-username/AI-ATS-resume-job-analyzer)")
