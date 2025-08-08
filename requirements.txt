@@ -1,9 +1,6 @@
-streamlit
-transformers
-torch
-spacy
-sentence-transformers
-nltk
-PyPDF2
-PyMuPDF
+streamlit==1.36.0
+spacy==3.7.4
+nltk==3.8.1
+PyMuPDF==1.24.9
+numpy==1.26.4
 en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1.tar.gz
