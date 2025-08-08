@@ -31,6 +31,8 @@ st.sidebar.markdown(
     '<a href="https://github.com/Griffindeetox/AI-ATS-resume-job-analyzer" target="_blank">💻 <b>View Source Code on GitHub</b></a>',
     unsafe_allow_html=True
 )
+
+# Title + tagline
 st.title("🚀 AI Resume & Job Match Analyzer")
 st.markdown(
     "<p style='color: gray; font-size: 16px;'>Upload your resume & job description to get instant match scores, missing skills, and keyword insights.</p>",
