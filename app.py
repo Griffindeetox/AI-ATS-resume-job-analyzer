@@ -6,14 +6,25 @@ import spacy
 from nltk.corpus import stopwords
 
 # Page setup
-st.set_page_config(page_title="AI Resume & Job Analyzer", layout="centered")
-st.title("📄 AI Resume & Job Analyzer for Tech Roles")
-st.markdown("Upload your **Resume** and a **Job Description (JD)** to get insights and a compatibility score.")
+st.set_page_config(
+    page_title="AI Resume & Job Analyzer",
+    page_icon="📄",  # Change emoji if you like
+    layout="centered"
+)
+
+st.title("🚀 AI Resume & Job Match Analyzer")
+st.markdown(
+    "<p style='color: gray; font-size: 16px;'>Upload your resume & job description to get instant match scores, missing skills, and keyword insights.</p>",
+    unsafe_allow_html=True
+)
+
+st.markdown("---")  # Horizontal separator line
 
 # Load NLP tools
 nlp = spacy.load("en_core_web_sm")
 nltk.download("stopwords")
 stop_words = set(stopwords.words("english"))
+
 
 # --- Function to extract keywords ---
 def extract_keywords(text):
