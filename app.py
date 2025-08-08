@@ -11,7 +11,20 @@ st.set_page_config(
     page_icon="📄",  # Change emoji if you like
     layout="centered"
 )
-
+# Sidebar Instructions
+st.sidebar.header("📌 How to Use")
+st.sidebar.markdown("""
+1. **Upload your Resume** (PDF or TXT).
+2. **Paste or upload the Job Description (JD)**.
+3. Click **Analyze** to see:
+   - ✅ Match score  
+   - 🗂 Matched keywords  
+   - ❌ Missing keywords  
+4. Adjust your resume to improve the score.
+""")
+# GitHub Repo Link
+st.sidebar.markdown("---")
+st.sidebar.markdown("💻 **View Source Code on GitHub:** [AI Resume & Job Analyzer](https://github.com/your-username/AI-ATS-resume-job-analyzer)")
 st.title("🚀 AI Resume & Job Match Analyzer")
 st.markdown(
     "<p style='color: gray; font-size: 16px;'>Upload your resume & job description to get instant match scores, missing skills, and keyword insights.</p>",
