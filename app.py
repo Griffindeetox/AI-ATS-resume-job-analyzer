@@ -11,7 +11,7 @@ st.set_page_config(
     page_icon="📄",  # Change emoji if you like
     layout="centered"
 )
-st.set_page_config(page_title="AI Resume & Job Analyzer", layout="centered")
+
 
 # Sidebar Instructions
 st.sidebar.header("📌 How to Use")
@@ -53,7 +53,7 @@ def extract_keywords(text):
         "azure", "terraform", "bicep", "monitoring", "kubernetes", "docker", "ci/cd",
         "azure devops", "linux", "windows", "ansible", "github", "python", "powershell",
         "microsoft 365", "teams", "event grid", "functions", "service bus", "sql",
-        "infrastructure", "iac", "guardrails", "policies", "landing zone", "networking", "paas", "iaas" "platform as a service", "infrastructure as code", "infrastructure as a service",
+        "infrastructure", "iac", "guardrails", "policies", "landing zone", "networking", "paas", "iaas", "platform as a service", "infrastructure as code", "infrastructure as a service",
     }
 
     doc = nlp(text.lower())
