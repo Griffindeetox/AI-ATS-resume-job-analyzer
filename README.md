@@ -13,32 +13,21 @@ Built with `Python`, `Streamlit`, and modern NLP techniques (`spaCy`, `nltk`).
 
 ---
 
-## 🚀 How to Use
-1. **Open the Live Demo** link above.  
-2. **Upload your Resume** (PDF or TXT format).  
-3. **Paste or upload the Job Description (JD)**.  
-4. Click **Analyze** to view:
-   - ✅ Match score  
-   - 🗂 Matched keywords  
-   - ❌ Missing keywords  
-5. Adjust your resume to improve the score, then re-run the analysis.
-
----
-
 ## 🚀 Features
 
-- ✅ Calculates keyword match percentage between resume and job description
-- ✅ Displays matched and missing keywords
-- ✅ Supports **PDF** and **.txt** resume formats
-- ✅ User-friendly drag-and-drop interface
-- ✅ Pre-trained skill extraction using `spaCy` and `nltk`
-- 🛠️ Easy to extend with role-specific keyword sets
+- ✅ Calculates keyword match percentage between resume and job description  
+- ✅ Displays matched and missing keywords  
+- ✅ **JD can be pasted directly — no upload required**  
+- ✅ Supports **PDF, TXT, and DOCX** resume formats  
+- ✅ User-friendly drag-and-drop interface for resumes  
+- ✅ Pre-trained skill extraction using `spaCy` and `nltk`  
+- 🛠️ Easy to extend with role-specific keyword sets  
 
 ---
 
 ## 📷 Demo
 
-#### 🖼 Screenshot 1: Upload Resume & Job Description
+#### 🖼 Screenshot 1: Upload Resume & Paste Job Description
 ![Demo Screenshot 1](https://github.com/user-attachments/assets/4a977104-b697-43bc-aa1b-4e2d4d334f5d)
 
 #### 🖼 Screenshot 2: View Match Score & Keywords
@@ -50,6 +39,6 @@ Built with `Python`, `Streamlit`, and modern NLP techniques (`spaCy`, `nltk`).
 
 ### 1. Clone the Repo
 ```bash
-git clone https://github.com/your-username/AI-ATS-resume-job-analyzer.git
+git clone https://github.com/Griffindeetox/AI-ATS-resume-job-analyzer.git
 cd AI-ATS-resume-job-analyzer
 
