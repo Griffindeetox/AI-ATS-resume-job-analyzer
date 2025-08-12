@@ -1,44 +1,58 @@
+# 🚀 AI Resume & Job Match Analyzer
 
-🌐 **Live Demo**: [ai-resume-job-analyzer.streamlit.app](https://ai-resume-job-analyzer.streamlit.app)  
+An open-source **AI-powered ATS resume checker** that analyzes your resume against a job description to give you:
+- ✅ Match Score  
+- 🗂 Matched Keywords  
+- ❌ Missing Keywords  
+- 💡 Smart Suggestions
 
-[![Streamlit App](https://img.shields.io/badge/Streamlit-Live_App-red?logo=streamlit)](https://ai-resume-job-analyzer.streamlit.app)
-
----
-
-# 🧠 AI Resume & Job Analyzer for Tech Roles
-
-A smart ATS-style analyzer that compares a resume against a job description to highlight missing and matching keywords — helping job seekers improve match rates for technical roles.
-
-Built with `Python`, `Streamlit`, and modern NLP techniques (`spaCy`, `nltk`).
+This project is designed to **mimic modern ATS (Applicant Tracking Systems)** so you can optimize your resume for better job application results.
 
 ---
 
-## 🚀 Features
+## 🎥 Demo
 
-- ✅ Calculates keyword match percentage between resume and job description  
-- ✅ Displays matched and missing keywords  
-- ✅ **JD can be pasted directly — no upload required**  
-- ✅ Supports **PDF, TXT, and DOCX** resume formats  
-- ✅ User-friendly drag-and-drop interface for resumes  
-- ✅ Pre-trained skill extraction using `spaCy` and `nltk`  
-- 🛠️ Easy to extend with role-specific keyword sets  
+![App Demo](https://github.com/user-attachments/assets/bffc9900-e909-424f-9f1b-3230bdbce286)
 
 ---
 
-## 📷 Demo
+## ✨ Features
 
-#### 🖼 Screenshot 1: Upload Resume & Paste Job Description
-![Demo Screenshot 1](https://github.com/user-attachments/assets/4a977104-b697-43bc-aa1b-4e2d4d334f5d)
-
-#### 🖼 Screenshot 2: View Match Score & Keywords
-![Demo Screenshot 2](https://github.com/user-attachments/assets/41a398fc-c997-408f-abee-b32de4a5d561)
+- **Multi-format Resume Upload** — Supports `.pdf`, `.docx`, `.txt`
+- **JD Paste Box** — No need to upload the job description; just paste it in
+- **Keyword Extraction & Matching** — Finds both matched and missing skills
+- **Match Score** — Quickly see how well your resume fits the JD
+- **Smart Suggestions** — Copilot-style tips for improving your resume
 
 ---
 
-## 🔧 Setup Instructions
+## 📌 How to Use
 
-### 1. Clone the Repo
+1. **Upload your Resume** (`.pdf`, `.docx`, or `.txt`)
+2. **Paste the Job Description** into the provided box
+3. Click **Analyze**
+4. View:
+   - Match Score  
+   - Matched Skills  
+   - Missing Skills  
+5. Improve your resume based on the suggestions
+
+---
+
+## 🛠 Installation
+
 ```bash
+# Clone the repo
 git clone https://github.com/Griffindeetox/AI-ATS-resume-job-analyzer.git
 cd AI-ATS-resume-job-analyzer
 
+# Create and activate a virtual environment
+python -m venv venv
+source venv/bin/activate  # Mac/Linux
+venv\Scripts\activate     # Windows
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run the app
+streamlit run app.py
