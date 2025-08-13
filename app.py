@@ -7,9 +7,8 @@ import spacy
 from nltk.corpus import stopwords
 from docx import Document
 from striprtf.striprtf import rtf_to_text
-from bs4 import BeautifulSoup
 
-# ---------------- Page setup (must be first Streamlit command) ----------------
+# ---------------- Page setup (must be the first Streamlit command) ----------------
 st.set_page_config(
     page_title="AI Resume & Job Analyzer",
     page_icon="📄",
@@ -23,8 +22,8 @@ st.sidebar.markdown("""
 2. **Paste the Job Description (JD)** into the text box.
 3. Click **Analyze** to see:
    - ✅ Match score  
-   - 🗂 Matched keywords  
-   - ❌ Missing keywords  
+   - 🗂 Matched keywords/phrases  
+   - ❌ Missing keywords/phrases  
 4. Adjust your resume to improve the score.
 """)
 
@@ -49,27 +48,6 @@ st.markdown("---")
 nlp = spacy.load("en_core_web_sm")
 nltk.download("stopwords")
 stop_words = set(stopwords.words("english"))
-
-# ---------------- Keyword extractor ----------------
-def extract_keywords(text: str):
-    TECH_SKILLS = {
-        "azure", "terraform", "bicep", "monitoring", "kubernetes", "docker", "ci/cd",
-        "azure devops", "linux", "windows", "ansible", "github", "python", "powershell",
-        "microsoft 365", "teams", "event grid", "functions", "service bus", "sql",
-        "infrastructure", "iac", "guardrails", "policies", "landing zone", "networking",
-        "paas", "iaas", "platform as a service", "infrastructure as code", "infrastructure as a service",
-    }
-
-    doc = nlp(text.lower())
-    keywords = {
-        token.lemma_.lower() for token in doc
-        if token.is_alpha
-        and token.lemma_ not in stop_words
-        and len(token.lemma_) > 2
-        and token.pos_ in ["NOUN", "PROPN"]
-        and token.ent_type_ not in ["DATE", "TIME", "MONEY", "ORDINAL", "CARDINAL"]
-    }
-    return keywords.intersection(TECH_SKILLS)
 
 # ---------------- File text extractors ----------------
 def extract_text_from_pdf(file_obj) -> str:
@@ -118,6 +96,113 @@ def extract_text_from_any(file_obj, filename: str) -> str:
     # .txt (and simple fallbacks)
     return extract_text_from_txt(file_obj)
 
+# ---------------- Dynamic JD-driven keyword/phrase extractor ----------------
+# Captures: acronyms (QA, API, ETL, SQL), noun/proper-noun lemmas (skills/tools),
+# short noun phrases (e.g., "manual testing", "data integration", "test cases"),
+# and selected verbs related to QA/support (testing, troubleshooting, integration).
+
+ALLOWED_VERBS = {
+    "test", "testing", "troubleshoot", "troubleshooting", "debug", "debugging",
+    "integrate", "integration", "document", "documentation", "support",
+    "analyze", "analysis"
+}
+
+# Simple synonym/normalization folding
+SYNONYMS = {
+    "rest apis": "rest api",
+    "http status codes": "http status",
+    "qa testing": "qa",
+    "quality assurance": "qa",
+    "customer support": "customer service",
+    "customers support": "customer service",
+    "js": "javascript",
+}
+
+ACRONYM_PATTERN = re.compile(r"\b[A-Z]{2,6}\b")                      # QA, API, ETL, SQL, HTTP, REST, CRM...
+CODEY_PATTERN   = re.compile(r"[A-Za-z0-9]+(?:[-_/][A-Za-z0-9]+)+")  # AZ-104, DHIS2-like, etc.
+
+def _normalize_phrase(words):
+    # words is a list of spaCy tokens; turn into a normalized phrase of lemmas
+    lemmas = []
+    for t in words:
+        if t.is_space or t.is_punct:
+            continue
+        # keep acronyms & short tokens (QA, API, ETL) – do not filter by length
+        lemma = t.lemma_.lower().strip()
+        if lemma and lemma not in stop_words:
+            lemmas.append(lemma)
+    if not lemmas:
+        return ""
+    phrase = " ".join(lemmas)
+    phrase = SYNONYMS.get(phrase, phrase)
+    phrase = re.sub(r"\s{2,}", " ", phrase)  # collapse repeated spaces
+    return phrase
+
+def extract_terms(text: str) -> set:
+    doc = nlp(text)
+    terms = set()
+
+    # 1) Single tokens
+    for tok in doc:
+        if tok.is_space or tok.is_punct:
+            continue
+        if tok.ent_type_ in {"DATE", "TIME", "MONEY", "ORDINAL", "CARDINAL"}:
+            continue
+
+        # acronyms (QA, API, ETL, SQL, HTTP, REST...)
+        if ACRONYM_PATTERN.fullmatch(tok.text):
+            terms.add(tok.text.lower())
+            continue
+
+        # hyphenated/code-like tokens (AZ-104, DHIS2-like)
+        if CODEY_PATTERN.fullmatch(tok.text):
+            terms.add(tok.text.lower())
+            continue
+
+        # nouns/proper nouns (skills/tools)
+        if tok.pos_ in {"NOUN", "PROPN"}:
+            lemma = tok.lemma_.lower().strip()
+            if lemma and lemma not in stop_words:
+                terms.add(SYNONYMS.get(lemma, lemma))
+            continue
+
+        # selected verbs (QA/support concepts)
+        if tok.pos_ == "VERB":
+            lemma = tok.lemma_.lower().strip()
+            if lemma in ALLOWED_VERBS:
+                terms.add(lemma)
+                # also add -ing nouny form
+                if lemma.endswith("e"):
+                    terms.add(lemma[:-1] + "ing")
+                else:
+                    terms.add(lemma + "ing")
+
+    # 2) Noun chunks (short phrases)
+    for chunk in doc.noun_chunks:
+        words = [t for t in chunk if not t.is_space and not t.is_punct]
+        # strip leading/trailing stopwords
+        while words and (words[0].is_stop or words[0].is_space or words[0].is_punct):
+            words = words[1:]
+        while words and (words[-1].is_stop or words[-1].is_space or words[-1].is_punct):
+            words = words[:-1]
+        if not words:
+            continue
+        # keep short phrases to avoid long tails
+        if 1 <= len(words) <= 4:
+            phrase = _normalize_phrase(words)
+            if phrase:
+                terms.add(phrase)
+
+    # 3) Post-normalization folding
+    normalized = set()
+    for t in terms:
+        t2 = SYNONYMS.get(t, t)
+        t2 = re.sub(r"\s{2,}", " ", t2.strip())
+        if t2:
+            normalized.add(t2)
+
+    return normalized
+
 # ---------------- Inputs ----------------
 resume_file = st.file_uploader(
     "📎 Upload Your Resume (.pdf, .docx, .rtf, .txt)",
@@ -142,36 +227,36 @@ if resume_file and jd_text.strip():
     st.subheader("🧾 Job Description Preview")
     st.text_area("Job Description Content", jd_text, height=200)
 
-    # Keyword matching (simple baseline)
-    resume_keywords = extract_keywords(resume_text)
-    jd_keywords = extract_keywords(jd_text)
+    # --- Dynamic JD-driven Keyword/Phrase Matching ---
+    jd_terms = extract_terms(jd_text)
+    resume_terms = extract_terms(resume_text)
 
-    matched_keywords = resume_keywords.intersection(jd_keywords)
-    missing_keywords = jd_keywords.difference(resume_keywords)
+    matched_keywords = sorted(jd_terms.intersection(resume_terms))
+    missing_keywords = sorted(jd_terms.difference(resume_terms))
 
-    match_score = round(
-        (len(matched_keywords) / len(jd_keywords) * 100) if len(jd_keywords) else 0.0, 2
-    )
+    match_score = round((len(matched_keywords) / len(jd_terms) * 100), 2) if jd_terms else 0.0
 
     # Results
-    st.subheader("🔍 Resume vs JD Keyword Match")
+    st.subheader("🔍 Resume vs JD Keyword/Phrase Match")
     st.markdown(f"**Match Score:** {match_score}%")
-    st.markdown(f"**Matched Keywords ({len(matched_keywords)}):** `{', '.join(sorted(matched_keywords))}`")
-    st.markdown(f"**Missing Keywords ({len(missing_keywords)}):** `{', '.join(sorted(missing_keywords))}`")
+    st.markdown(f"**Matched ({len(matched_keywords)}):** `{', '.join(matched_keywords)}`")
+    st.markdown(f"**Missing ({len(missing_keywords)}):** `{', '.join(missing_keywords)}`")
 
     # Suggestions
     st.subheader("💡 Copilot-style Suggestions")
     if missing_keywords:
-        st.markdown("• Consider adding the following keywords to better align with the JD:")
-        st.markdown(f"`{', '.join(sorted(missing_keywords))}`")
-    else:
+        st.markdown("• Consider adding the following keywords/phrases to better align with the JD:")
+        st.markdown(f"`{', '.join(missing_keywords)}`")
+    elif jd_terms:
         st.markdown("• ✅ Your resume already covers all the key terms in the job description!")
+    else:
+        st.markdown("• (No clear keywords detected in the JD text. Try pasting the full JD.)")
 
     if matched_keywords:
         st.markdown("• Your resume already includes:")
-        st.markdown(f"`{', '.join(sorted(matched_keywords))}`")
+        st.markdown(f"`{', '.join(matched_keywords)}`")
 
-    st.markdown("• Tip: Highlight these skills in your summary or experience section to boost visibility.")
+    st.markdown("• Tip: Reflect these in your **Experience** bullets and **Skills** section for stronger ATS visibility.")
 
 else:
     st.info("Please upload a resume and paste the job description to start the analysis.")
@@ -191,4 +276,3 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
-
