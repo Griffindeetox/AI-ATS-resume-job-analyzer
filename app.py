@@ -7,8 +7,9 @@ import spacy
 from nltk.corpus import stopwords
 from docx import Document
 from striprtf.striprtf import rtf_to_text
+from rapidfuzz import fuzz
 
-# ---------------- Page setup (must be the first Streamlit command) ----------------
+# ---------------- Page setup (must be first Streamlit command) ----------------
 st.set_page_config(
     page_title="AI Resume & Job Analyzer",
     page_icon="📄",
@@ -21,9 +22,9 @@ st.sidebar.markdown("""
 1. **Upload your Resume** (PDF, DOCX, RTF, or TXT).
 2. **Paste the Job Description (JD)** into the text box.
 3. Click **Analyze** to see:
-   - ✅ Match score  
-   - 🗂 Matched keywords/phrases  
-   - ❌ Missing keywords/phrases  
+   - ✅ Simple match score  
+   - 📈 Weighted (ATS-style) score  
+   - 🗂 Matched / ❌ Missing keywords & phrases  
 4. Adjust your resume to improve the score.
 """)
 
@@ -32,14 +33,13 @@ st.sidebar.markdown(
     '<a href="https://github.com/Griffindeetox/AI-ATS-resume-job-analyzer" target="_blank">💻 <b>View Source Code on GitHub</b></a>',
     unsafe_allow_html=True
 )
-
 st.sidebar.markdown("---")
 st.sidebar.markdown("👨‍💻 *Made by Adeyemi O*")
 
 # ---------------- Title & tagline ----------------
-st.title("🚀 AI Resume & Job Match Analyzer")
+st.title("🚀 AI Resume & Job Match Analyzer (Beta)")
 st.markdown(
-    "<p style='color: gray; font-size: 16px;'>Upload your resume & paste the job description to get instant match scores, missing skills, and keyword insights.</p>",
+    "<p style='color: gray; font-size: 16px;'>Upload your resume & paste the job description to get instant simple and ATS-style weighted scores, with matched/missing terms.</p>",
     unsafe_allow_html=True
 )
 st.markdown("---")
@@ -51,7 +51,6 @@ stop_words = set(stopwords.words("english"))
 
 # ---------------- File text extractors ----------------
 def extract_text_from_pdf(file_obj) -> str:
-    """Extract text from a PDF (Streamlit UploadedFile)."""
     with fitz.open(stream=file_obj.read(), filetype="pdf") as doc:
         text = []
         for page in doc:
@@ -59,14 +58,12 @@ def extract_text_from_pdf(file_obj) -> str:
     return "\n".join(text)
 
 def extract_text_from_docx(file_obj) -> str:
-    """Extract text from a DOCX."""
     data = file_obj.read()
     bio = io.BytesIO(data)
     doc = Document(bio)
     return "\n".join(p.text for p in doc.paragraphs)
 
 def extract_text_from_rtf(file_obj) -> str:
-    """Extract text from an RTF."""
     data = file_obj.read()
     try:
         return rtf_to_text(data.decode("utf-8", errors="ignore"))
@@ -74,18 +71,15 @@ def extract_text_from_rtf(file_obj) -> str:
         return rtf_to_text(data.decode("latin-1", errors="ignore"))
 
 def extract_text_from_txt(file_obj) -> str:
-    """Extract text from a TXT/MD-like file."""
     data = file_obj.read()
     try:
         text = data.decode("utf-8")
     except Exception:
         text = data.decode("latin-1", errors="ignore")
-    # light markdown/formatting cleanup
-    text = re.sub(r"[#*_>`~\-]{1,}", " ", text)
+    text = re.sub(r"[#*_>`~\-]{1,}", " ", text)  # light formatting cleanup
     return text
 
 def extract_text_from_any(file_obj, filename: str) -> str:
-    """Unified extractor for resume files."""
     name = filename.lower()
     if name.endswith(".pdf"):
         return extract_text_from_pdf(file_obj)
@@ -93,41 +87,37 @@ def extract_text_from_any(file_obj, filename: str) -> str:
         return extract_text_from_docx(file_obj)
     if name.endswith(".rtf"):
         return extract_text_from_rtf(file_obj)
-    # .txt (and simple fallbacks)
     return extract_text_from_txt(file_obj)
 
-# ---------------- Dynamic JD-driven keyword/phrase extractor ----------------
-# Captures: acronyms (QA, API, ETL, SQL), noun/proper-noun lemmas (skills/tools),
-# short noun phrases (e.g., "manual testing", "data integration", "test cases"),
-# and selected verbs related to QA/support (testing, troubleshooting, integration).
-
+# ---------------- Dynamic term extraction (tokens + short phrases + acronyms) ----------------
 ALLOWED_VERBS = {
     "test", "testing", "troubleshoot", "troubleshooting", "debug", "debugging",
     "integrate", "integration", "document", "documentation", "support",
     "analyze", "analysis"
 }
 
-# Simple synonym/normalization folding
+# Synonym folding both for extraction and matching
 SYNONYMS = {
+    "quality assurance": "qa",
+    "qa testing": "qa",
+    "manual software qa testing": "qa",
     "rest apis": "rest api",
     "http status codes": "http status",
-    "qa testing": "qa",
-    "quality assurance": "qa",
     "customer support": "customer service",
     "customers support": "customer service",
     "js": "javascript",
+    "postgres": "postgresql",
+    "postgre sql": "postgresql",
 }
 
 ACRONYM_PATTERN = re.compile(r"\b[A-Z]{2,6}\b")                      # QA, API, ETL, SQL, HTTP, REST, CRM...
 CODEY_PATTERN   = re.compile(r"[A-Za-z0-9]+(?:[-_/][A-Za-z0-9]+)+")  # AZ-104, DHIS2-like, etc.
 
 def _normalize_phrase(words):
-    # words is a list of spaCy tokens; turn into a normalized phrase of lemmas
     lemmas = []
     for t in words:
         if t.is_space or t.is_punct:
             continue
-        # keep acronyms & short tokens (QA, API, ETL) – do not filter by length
         lemma = t.lemma_.lower().strip()
         if lemma and lemma not in stop_words:
             lemmas.append(lemma)
@@ -135,7 +125,7 @@ def _normalize_phrase(words):
         return ""
     phrase = " ".join(lemmas)
     phrase = SYNONYMS.get(phrase, phrase)
-    phrase = re.sub(r"\s{2,}", " ", phrase)  # collapse repeated spaces
+    phrase = re.sub(r"\s{2,}", " ", phrase)
     return phrase
 
 def extract_terms(text: str) -> set:
@@ -149,30 +139,25 @@ def extract_terms(text: str) -> set:
         if tok.ent_type_ in {"DATE", "TIME", "MONEY", "ORDINAL", "CARDINAL"}:
             continue
 
-        # acronyms (QA, API, ETL, SQL, HTTP, REST...)
-        if ACRONYM_PATTERN.fullmatch(tok.text):
+        if ACRONYM_PATTERN.fullmatch(tok.text):           # QA, API, ETL, SQL, HTTP, REST...
             terms.add(tok.text.lower())
             continue
 
-        # hyphenated/code-like tokens (AZ-104, DHIS2-like)
-        if CODEY_PATTERN.fullmatch(tok.text):
+        if CODEY_PATTERN.fullmatch(tok.text):             # AZ-104, DHIS2-like
             terms.add(tok.text.lower())
             continue
 
-        # nouns/proper nouns (skills/tools)
         if tok.pos_ in {"NOUN", "PROPN"}:
             lemma = tok.lemma_.lower().strip()
             if lemma and lemma not in stop_words:
                 terms.add(SYNONYMS.get(lemma, lemma))
             continue
 
-        # selected verbs (QA/support concepts)
         if tok.pos_ == "VERB":
             lemma = tok.lemma_.lower().strip()
             if lemma in ALLOWED_VERBS:
                 terms.add(lemma)
-                # also add -ing nouny form
-                if lemma.endswith("e"):
+                if lemma.endswith("e"):  # add -ing nouny form
                     terms.add(lemma[:-1] + "ing")
                 else:
                     terms.add(lemma + "ing")
@@ -180,14 +165,12 @@ def extract_terms(text: str) -> set:
     # 2) Noun chunks (short phrases)
     for chunk in doc.noun_chunks:
         words = [t for t in chunk if not t.is_space and not t.is_punct]
-        # strip leading/trailing stopwords
         while words and (words[0].is_stop or words[0].is_space or words[0].is_punct):
             words = words[1:]
         while words and (words[-1].is_stop or words[-1].is_space or words[-1].is_punct):
             words = words[:-1]
         if not words:
             continue
-        # keep short phrases to avoid long tails
         if 1 <= len(words) <= 4:
             phrase = _normalize_phrase(words)
             if phrase:
@@ -203,6 +186,111 @@ def extract_terms(text: str) -> set:
 
     return normalized
 
+# ---------------- Matching helpers (exact, synonym, fuzzy) ----------------
+# category weights (critical > important > nice)
+SCORING_CONFIG = {
+    "weights": {
+        "critical": 3.0,
+        "important": 2.0,
+        "nice": 1.0,
+    },
+    "fuzzy_threshold": 85,  # 0-100, partial_ratio
+}
+
+# Simple category hints (expand as needed). Terms not listed default to "nice".
+CATEGORY_HINTS = {
+    # Critical JD concepts for QA/API roles
+    "qa": "critical",
+    "manual testing": "critical",
+    "test case": "critical",
+    "rest api": "critical",
+    "api": "critical",
+    "http status": "critical",
+    "javascript": "critical",
+    "integration": "critical",
+    "data integration": "critical",
+    "etl": "critical",
+    "sql": "critical",
+    "postgresql": "critical",
+
+    # Important but not always must-have
+    "documentation": "important",
+    "customer service": "important",
+    "troubleshooting": "important",
+    "debugging": "important",
+    "salesforce": "important",
+    "dhis2": "important",
+    "commcare": "important",
+    "kobo toolbox": "important",
+    "openmrs": "important",
+    "remote": "important",
+    "remote-first": "important",
+}
+
+def normalize_term(t: str) -> str:
+    t = t.lower().strip()
+    return SYNONYMS.get(t, t)
+
+def expand_synonyms(term: str) -> set:
+    """Return a small set including the term and obvious synonyms/variants."""
+    term = normalize_term(term)
+    variants = {term}
+    # reverse lookup in SYNONYMS (value -> keys)
+    for k, v in SYNONYMS.items():
+        if v == term:
+            variants.add(k)
+    # add common pluralization/basic variants
+    if not term.endswith("s"):
+        variants.add(term + "s")
+    if term.endswith("s"):
+        variants.add(term.rstrip("s"))
+    return {normalize_term(v) for v in variants}
+
+def any_exact_or_fuzzy_match(term: str, resume_terms: set, resume_text: str, threshold: int) -> tuple[bool, str]:
+    """
+    Tries exact match, synonym exact, then fuzzy against resume_terms and resume_text.
+    Returns (matched, method) where method in {"exact","synonym","fuzzy-terms","fuzzy-text","no"}.
+    """
+    base = normalize_term(term)
+    syns = expand_synonyms(base)
+
+    # 1) exact in extracted terms
+    if base in resume_terms:
+        return True, "exact"
+    if syns.intersection(resume_terms):
+        return True, "synonym"
+
+    # 2) fuzzy vs extracted terms
+    for rt in resume_terms:
+        if fuzz.partial_ratio(base, rt) >= threshold:
+            return True, "fuzzy-terms"
+        for s in syns:
+            if fuzz.partial_ratio(s, rt) >= threshold:
+                return True, "fuzzy-terms"
+
+    # 3) fuzzy vs raw text (backup)
+    # Split resume text into rough tokens/phrases
+    tokens = set(re.findall(r"[A-Za-z0-9][A-Za-z0-9\-/ ]{1,40}", resume_text.lower()))
+    for tok in tokens:
+        if fuzz.partial_ratio(base, tok) >= threshold:
+            return True, "fuzzy-text"
+        for s in syns:
+            if fuzz.partial_ratio(s, tok) >= threshold:
+                return True, "fuzzy-text"
+
+    return False, "no"
+
+def categorize_term(term: str) -> str:
+    t = normalize_term(term)
+    if t in CATEGORY_HINTS:
+        return CATEGORY_HINTS[t]
+    # heuristic category mapping
+    if any(k in t for k in ["qa", "rest api", "api", "http status", "javascript", "etl", "integration", "sql", "postgresql", "test case"]):
+        return "critical"
+    if any(k in t for k in ["troubleshoot", "debug", "documentation", "customer service", "salesforce", "dhis2", "commcare", "kobo toolbox", "openmrs", "remote"]):
+        return "important"
+    return "nice"
+
 # ---------------- Inputs ----------------
 resume_file = st.file_uploader(
     "📎 Upload Your Resume (.pdf, .docx, .rtf, .txt)",
@@ -217,60 +305,88 @@ jd_text = st.text_area(
 
 # ---------------- Main analysis ----------------
 if resume_file and jd_text.strip():
-    # Extract resume text via unified extractor
     resume_text = extract_text_from_any(resume_file, resume_file.name)
 
     # Previews
     st.subheader("📄 Resume Preview")
-    st.text_area("Your Resume Content", resume_text, height=200)
+    st.text_area("Your Resume Content", resume_text, height=180)
 
     st.subheader("🧾 Job Description Preview")
-    st.text_area("Job Description Content", jd_text, height=200)
+    st.text_area("Job Description Content", jd_text, height=180)
 
-    # --- Dynamic JD-driven Keyword/Phrase Matching ---
+    # --- Extract terms
     jd_terms = extract_terms(jd_text)
     resume_terms = extract_terms(resume_text)
 
-    matched_keywords = sorted(jd_terms.intersection(resume_terms))
-    missing_keywords = sorted(jd_terms.difference(resume_terms))
+    # --- Simple (unweighted) match for reference
+    simple_matched = sorted(jd_terms.intersection(resume_terms))
+    simple_missing = sorted(jd_terms.difference(resume_terms))
+    simple_score = round((len(simple_matched) / len(jd_terms) * 100), 2) if jd_terms else 0.0
 
-    match_score = round((len(matched_keywords) / len(jd_terms) * 100), 2) if jd_terms else 0.0
+    st.subheader("🔍 Simple Match (for reference)")
+    st.markdown(f"**Simple Match Score:** {simple_score}%")
+    st.markdown(f"**Matched ({len(simple_matched)}):** `{', '.join(simple_matched)}`")
+    st.markdown(f"**Missing ({len(simple_missing)}):** `{', '.join(simple_missing)}`")
 
-    # Results
-    st.subheader("🔍 Resume vs JD Keyword/Phrase Match")
-    st.markdown(f"**Match Score:** {match_score}%")
-    st.markdown(f"**Matched ({len(matched_keywords)}):** `{', '.join(matched_keywords)}`")
-    st.markdown(f"**Missing ({len(missing_keywords)}):** `{', '.join(missing_keywords)}`")
+    # --- Weighted ATS-style scoring with synonyms + fuzzy
+    threshold = SCORING_CONFIG["fuzzy_threshold"]
+    items = []
+    total_possible = 0.0
+    total_earned = 0.0
 
-    # Suggestions
+    for term in sorted(jd_terms):
+        category = categorize_term(term)
+        weight = SCORING_CONFIG["weights"][category]
+        total_possible += weight
+
+        matched, method = any_exact_or_fuzzy_match(term, resume_terms, resume_text, threshold)
+        earned = weight if matched else 0.0
+        total_earned += earned
+
+        items.append({
+            "Term": term,
+            "Category": category,
+            "Matched": "✅" if matched else "❌",
+            "Method": method if matched != "no" else "-",
+            "Weight": weight,
+            "Earned": earned,
+        })
+
+    weighted_score = round((total_earned / total_possible) * 100, 2) if total_possible > 0 else 0.0
+
+    st.subheader("📈 Weighted Match (ATS-style)")
+    st.markdown(f"**Weighted Match Score:** {weighted_score}%")
+    st.caption("Critical terms count more than nice-to-have ones. Synonyms and fuzzy matches are accepted.")
+    st.markdown("**Term Impact Breakdown**")
+    # sort by importance (weight desc) then matched
+    items_sorted = sorted(items, key=lambda d: (d["Weight"], d["Matched"]), reverse=True)
+    st.table(items_sorted)
+
+    # Suggestions (from weighted perspective)
+    missing_weighted = [d["Term"] for d in items if d["Matched"] == "❌"]
     st.subheader("💡 Copilot-style Suggestions")
-    if missing_keywords:
-        st.markdown("• Consider adding the following keywords/phrases to better align with the JD:")
-        st.markdown(f"`{', '.join(missing_keywords)}`")
+    if missing_weighted:
+        st.markdown("• Consider adding or evidencing these **high-impact** terms from the JD:")
+        st.markdown(f"`{', '.join(sorted(missing_weighted))}`")
     elif jd_terms:
-        st.markdown("• ✅ Your resume already covers all the key terms in the job description!")
+        st.markdown("• ✅ Your resume already covers the key terms in this JD (consider adding measurable results/examples).")
     else:
         st.markdown("• (No clear keywords detected in the JD text. Try pasting the full JD.)")
 
-    if matched_keywords:
-        st.markdown("• Your resume already includes:")
-        st.markdown(f"`{', '.join(matched_keywords)}`")
+    if simple_matched:
+        st.markdown("• Already present in your resume:")
+        st.markdown(f"`{', '.join(simple_matched)}`")
 
-    st.markdown("• Tip: Reflect these in your **Experience** bullets and **Skills** section for stronger ATS visibility.")
+    st.markdown("• Tip: Put critical terms into **Experience bullets** (recent roles) and **Skills** for better ATS visibility.")
 
 else:
     st.info("Please upload a resume and paste the job description to start the analysis.")
 
-# ---------------- Main page footer (theme-aware) ----------------
+# ---------------- Footer ----------------
 st.markdown(
     """
     <style>
-      .app-footer {
-        text-align: center;
-        color: var(--text-color);
-        opacity: 0.7;
-        margin-top: 1.5rem;
-      }
+      .app-footer { text-align:center; opacity:0.7; margin-top:1.0rem; }
     </style>
     <div class="app-footer">👨‍💻 Made by <b>Adeyemi O</b></div>
     """,
