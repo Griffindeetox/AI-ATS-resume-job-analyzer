@@ -1,3 +1,4 @@
+rapidfuzz==3.9.6
 streamlit==1.36.0
 spacy==3.7.4
 nltk==3.8.1
