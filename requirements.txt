@@ -8,3 +8,4 @@ en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_
 python-docx==0.8.11
 striprtf==0.0.26
 beautifulsoup4==4.12.3
+PyYAML==6.0.2
