@@ -10,14 +10,14 @@ from docx import Document
 from striprtf.striprtf import rtf_to_text
 from rapidfuzz import fuzz
 
-# ---------------- Page setup (must be first Streamlit command) ----------------
+# ---------------- Page setup ----------------
 st.set_page_config(
     page_title="AI Resume & Job Analyzer",
     page_icon="📄",
     layout="centered",
 )
 
-# ---------------- Sidebar: How to Use + GitHub link + credit ----------------
+# ---------------- Sidebar ----------------
 st.sidebar.header("📌 How to Use")
 st.sidebar.markdown("""
 1. **Upload your Resume** (PDF, DOCX, RTF, or TXT).
@@ -77,7 +77,7 @@ def extract_text_from_txt(file_obj) -> str:
         text = data.decode("utf-8")
     except Exception:
         text = data.decode("latin-1", errors="ignore")
-    text = re.sub(r"[#*_>`~\\-]{1,}", " ", text)  # light formatting cleanup
+    text = re.sub(r"[#*_>`~\-]{1,}", " ", text)  # light formatting cleanup
     return text
 
 def extract_text_from_any(file_obj, filename: str) -> str:
@@ -190,19 +190,9 @@ def extract_terms(text: str) -> set:
     return normalized
 
 # ---------------- Matching helpers (exact, synonym, fuzzy) ----------------
-# category weights (critical > important > nice)
 SCORING_CONFIG = {
-    "weights": {
-        "critical": 3.0,
-        "important": 2.0,
-        "nice": 1.0,
-    },
-    # per-category fuzzy thresholds (0-100, partial_ratio)
-    "thresholds": {
-        "critical": 85,
-        "important": 80,
-        "nice": 75,
-    }
+    "weights": { "critical": 3.0, "important": 2.0, "nice": 1.0 },
+    "thresholds": { "critical": 85, "important": 80, "nice": 75 }  # RapidFuzz partial_ratio thresholds
 }
 
 CATEGORY_HINTS = {
@@ -262,6 +252,9 @@ def categorize_term(term: str) -> str:
         return "important"
     return "nice"
 
+# Precompiled token regex (FIXED: safe dash placement/escaping)
+TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9\-\/ ]{1,40}")
+
 def any_exact_or_fuzzy_match(term: str, resume_terms: set, resume_text: str, threshold: int) -> tuple[bool, str]:
     """
     Tries exact match, synonym exact, then fuzzy against resume_terms and resume_text.
@@ -284,8 +277,8 @@ def any_exact_or_fuzzy_match(term: str, resume_terms: set, resume_text: str, thr
             if fuzz.partial_ratio(s, rt) >= threshold:
                 return True, "fuzzy-terms"
 
-    # 3) fuzzy vs raw text (backup)
-    tokens = set(re.findall(r"[A-Za-z0-9][A-Za-z0-9\\-/ ]{1,40}", resume_text.lower()))
+    # 3) fuzzy vs raw text (backup) — uses fixed/safer regex
+    tokens = set(TOKEN_RE.findall(resume_text.lower()))
     for tok in tokens:
         if fuzz.partial_ratio(base, tok) >= threshold:
             return True, "fuzzy-text"
