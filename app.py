@@ -2,6 +2,7 @@ import streamlit as st
 import fitz  # PyMuPDF
 import io
 import re
+import csv
 import nltk
 import spacy
 from nltk.corpus import stopwords
@@ -25,7 +26,7 @@ st.sidebar.markdown("""
    - ✅ Simple match score  
    - 📈 Weighted (ATS-style) score  
    - 🗂 Matched / ❌ Missing keywords & phrases  
-4. Adjust your resume to improve the score.
+4. Expand details to view **per-term breakdown** or **download CSVs**.
 """)
 
 st.sidebar.markdown("---")
@@ -76,7 +77,7 @@ def extract_text_from_txt(file_obj) -> str:
         text = data.decode("utf-8")
     except Exception:
         text = data.decode("latin-1", errors="ignore")
-    text = re.sub(r"[#*_>`~\-]{1,}", " ", text)  # light formatting cleanup
+    text = re.sub(r"[#*_>`~\\-]{1,}", " ", text)  # light formatting cleanup
     return text
 
 def extract_text_from_any(file_obj, filename: str) -> str:
@@ -108,6 +109,8 @@ SYNONYMS = {
     "js": "javascript",
     "postgres": "postgresql",
     "postgre sql": "postgresql",
+    "data transformation": "etl",
+    "data pipeline": "etl",
 }
 
 ACRONYM_PATTERN = re.compile(r"\b[A-Z]{2,6}\b")                      # QA, API, ETL, SQL, HTTP, REST, CRM...
@@ -194,10 +197,14 @@ SCORING_CONFIG = {
         "important": 2.0,
         "nice": 1.0,
     },
-    "fuzzy_threshold": 85,  # 0-100, partial_ratio
+    # per-category fuzzy thresholds (0-100, partial_ratio)
+    "thresholds": {
+        "critical": 85,
+        "important": 80,
+        "nice": 75,
+    }
 }
 
-# Simple category hints (expand as needed). Terms not listed default to "nice".
 CATEGORY_HINTS = {
     # Critical JD concepts for QA/API roles
     "qa": "critical",
@@ -232,19 +239,28 @@ def normalize_term(t: str) -> str:
     return SYNONYMS.get(t, t)
 
 def expand_synonyms(term: str) -> set:
-    """Return a small set including the term and obvious synonyms/variants."""
     term = normalize_term(term)
     variants = {term}
     # reverse lookup in SYNONYMS (value -> keys)
     for k, v in SYNONYMS.items():
         if v == term:
             variants.add(k)
-    # add common pluralization/basic variants
+    # simple plural/singular variants
     if not term.endswith("s"):
         variants.add(term + "s")
-    if term.endswith("s"):
+    else:
         variants.add(term.rstrip("s"))
     return {normalize_term(v) for v in variants}
+
+def categorize_term(term: str) -> str:
+    t = normalize_term(term)
+    if t in CATEGORY_HINTS:
+        return CATEGORY_HINTS[t]
+    if any(k in t for k in ["qa", "rest api", "api", "http status", "javascript", "etl", "integration", "sql", "postgresql", "test case"]):
+        return "critical"
+    if any(k in t for k in ["troubleshoot", "debug", "documentation", "customer service", "salesforce", "dhis2", "commcare", "kobo toolbox", "openmrs", "remote"]):
+        return "important"
+    return "nice"
 
 def any_exact_or_fuzzy_match(term: str, resume_terms: set, resume_text: str, threshold: int) -> tuple[bool, str]:
     """
@@ -269,8 +285,7 @@ def any_exact_or_fuzzy_match(term: str, resume_terms: set, resume_text: str, thr
                 return True, "fuzzy-terms"
 
     # 3) fuzzy vs raw text (backup)
-    # Split resume text into rough tokens/phrases
-    tokens = set(re.findall(r"[A-Za-z0-9][A-Za-z0-9\-/ ]{1,40}", resume_text.lower()))
+    tokens = set(re.findall(r"[A-Za-z0-9][A-Za-z0-9\\-/ ]{1,40}", resume_text.lower()))
     for tok in tokens:
         if fuzz.partial_ratio(base, tok) >= threshold:
             return True, "fuzzy-text"
@@ -280,16 +295,33 @@ def any_exact_or_fuzzy_match(term: str, resume_terms: set, resume_text: str, thr
 
     return False, "no"
 
-def categorize_term(term: str) -> str:
-    t = normalize_term(term)
-    if t in CATEGORY_HINTS:
-        return CATEGORY_HINTS[t]
-    # heuristic category mapping
-    if any(k in t for k in ["qa", "rest api", "api", "http status", "javascript", "etl", "integration", "sql", "postgresql", "test case"]):
-        return "critical"
-    if any(k in t for k in ["troubleshoot", "debug", "documentation", "customer service", "salesforce", "dhis2", "commcare", "kobo toolbox", "openmrs", "remote"]):
-        return "important"
-    return "nice"
+def score_weighted(jd_terms: set, resume_terms: set, resume_text: str):
+    items = []
+    total_possible = 0.0
+    total_earned = 0.0
+
+    for term in sorted(jd_terms):
+        category = categorize_term(term)
+        weight = SCORING_CONFIG["weights"][category]
+        threshold = SCORING_CONFIG["thresholds"][category]
+
+        matched, method = any_exact_or_fuzzy_match(term, resume_terms, resume_text, threshold)
+
+        earned = weight if matched else 0.0
+        total_possible += weight
+        total_earned += earned
+
+        items.append({
+            "Term": term,
+            "Category": category,
+            "Matched": "✅" if matched else "❌",
+            "Method": method if matched != "no" else "-",
+            "Weight": round(weight, 2),
+            "Earned": round(earned, 2),
+        })
+
+    score = round((total_earned / total_possible) * 100, 2) if total_possible > 0 else 0.0
+    return score, items, total_possible, total_earned
 
 # ---------------- Inputs ----------------
 resume_file = st.file_uploader(
@@ -309,10 +341,10 @@ if resume_file and jd_text.strip():
 
     # Previews
     st.subheader("📄 Resume Preview")
-    st.text_area("Your Resume Content", resume_text, height=180)
+    st.text_area("Your Resume Content", resume_text, height=160)
 
     st.subheader("🧾 Job Description Preview")
-    st.text_area("Job Description Content", jd_text, height=180)
+    st.text_area("Job Description Content", jd_text, height=160)
 
     # --- Extract terms
     jd_terms = extract_terms(jd_text)
@@ -323,61 +355,111 @@ if resume_file and jd_text.strip():
     simple_missing = sorted(jd_terms.difference(resume_terms))
     simple_score = round((len(simple_matched) / len(jd_terms) * 100), 2) if jd_terms else 0.0
 
+    # --- Weighted score
+    weighted_score, items, total_possible, total_earned = score_weighted(jd_terms, resume_terms, resume_text)
+
+    # Top summary (two scores side-by-side)
+    st.subheader("📊 Summary")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Simple Match", f"{simple_score}%")
+    with col2:
+        st.metric("Weighted Match (ATS-style)", f"{weighted_score}%")
+
+    # Simple details (toggle + CSV)
     st.subheader("🔍 Simple Match (for reference)")
-    st.markdown(f"**Simple Match Score:** {simple_score}%")
-    st.markdown(f"**Matched ({len(simple_matched)}):** `{', '.join(simple_matched)}`")
-    st.markdown(f"**Missing ({len(simple_missing)}):** `{', '.join(simple_missing)}`")
+    show_simple = st.toggle("Show simple match details", value=False, key="simple_details_toggle")
+    if show_simple:
+        st.markdown(f"**Matched ({len(simple_matched)}):** `{', '.join(simple_matched)}`")
+        st.markdown(f"**Missing ({len(simple_missing)}):** `{', '.join(simple_missing)}`")
 
-    # --- Weighted ATS-style scoring with synonyms + fuzzy
-    threshold = SCORING_CONFIG["fuzzy_threshold"]
-    items = []
-    total_possible = 0.0
-    total_earned = 0.0
+        # CSV download for simple match lists
+        if simple_matched or simple_missing:
+            import io as _io
+            buf = _io.StringIO()
+            writer = csv.writer(buf)
+            writer.writerow(["Term", "Status"])
+            for t in simple_matched:
+                writer.writerow([t, "Matched"])
+            for t in simple_missing:
+                writer.writerow([t, "Missing"])
+            st.download_button(
+                "Download simple match as CSV",
+                buf.getvalue(),
+                file_name="simple_match.csv",
+                mime="text/csv"
+            )
 
-    for term in sorted(jd_terms):
-        category = categorize_term(term)
-        weight = SCORING_CONFIG["weights"][category]
-        total_possible += weight
-
-        matched, method = any_exact_or_fuzzy_match(term, resume_terms, resume_text, threshold)
-        earned = weight if matched else 0.0
-        total_earned += earned
-
-        items.append({
-            "Term": term,
-            "Category": category,
-            "Matched": "✅" if matched else "❌",
-            "Method": method if matched != "no" else "-",
-            "Weight": weight,
-            "Earned": earned,
-        })
-
-    weighted_score = round((total_earned / total_possible) * 100, 2) if total_possible > 0 else 0.0
-
+    # Weighted breakdown + grouping
     st.subheader("📈 Weighted Match (ATS-style)")
-    st.markdown(f"**Weighted Match Score:** {weighted_score}%")
     st.caption("Critical terms count more than nice-to-have ones. Synonyms and fuzzy matches are accepted.")
-    st.markdown("**Term Impact Breakdown**")
-    # sort by importance (weight desc) then matched
-    items_sorted = sorted(items, key=lambda d: (d["Weight"], d["Matched"]), reverse=True)
-    st.table(items_sorted)
 
-    # Suggestions (from weighted perspective)
+    # Sort by importance (weight desc) then matched
+    items_sorted = sorted(items, key=lambda d: (d["Weight"], d["Matched"]), reverse=True)
+
+    # Group into Critical / Important / Nice (matched/missing)
+    groups = {"critical": {"matched": [], "missing": []},
+              "important": {"matched": [], "missing": []},
+              "nice": {"matched": [], "missing": []}}
+
+    for row in items_sorted:
+        bucket = row["Category"]
+        (groups[bucket]["matched"] if row["Matched"] == "✅" else groups[bucket]["missing"]).append(row["Term"])
+
+    # Expanders per group
+    for bucket, label in [("critical", "Critical"), ("important", "Important"), ("nice", "Nice to Have")]:
+        with st.expander(f"{label} — Matched ({len(groups[bucket]['matched'])}) / Missing ({len(groups[bucket]['missing'])})", expanded=False):
+            if groups[bucket]["matched"]:
+                st.markdown(f"**Matched:** `{', '.join(sorted(groups[bucket]['matched']))}`")
+            if groups[bucket]["missing"]:
+                st.markdown(f"**Missing:** `{', '.join(sorted(groups[bucket]['missing']))}`")
+
+    # Details toggle + full breakdown CSV
+    show_details = st.toggle("Show detailed breakdown", value=False)
+    if show_details:
+        st.markdown("**Term Impact Breakdown**")
+        st.table(items_sorted)
+
+        if items_sorted:
+            import io as _io2
+            buf2 = _io2.StringIO()
+            writer2 = csv.DictWriter(buf2, fieldnames=list(items_sorted[0].keys()))
+            writer2.writeheader()
+            writer2.writerows(items_sorted)
+            st.download_button(
+                "Download breakdown as CSV",
+                buf2.getvalue(),
+                file_name="ats_breakdown.csv",
+                mime="text/csv"
+            )
+
+    # Suggestions (weighted perspective)
     missing_weighted = [d["Term"] for d in items if d["Matched"] == "❌"]
     st.subheader("💡 Copilot-style Suggestions")
     if missing_weighted:
-        st.markdown("• Consider adding or evidencing these **high-impact** terms from the JD:")
-        st.markdown(f"`{', '.join(sorted(missing_weighted))}`")
+        # Prioritize by category
+        critical_missing = [t for t in missing_weighted if categorize_term(t) == "critical"]
+        important_missing = [t for t in missing_weighted if categorize_term(t) == "important"]
+
+        if critical_missing:
+            st.markdown("• **Top priority (Critical):**")
+            st.markdown(f"`{', '.join(sorted(set(critical_missing)))}`")
+        if important_missing:
+            st.markdown("• **Next (Important):**")
+            st.markdown(f"`{', '.join(sorted(set(important_missing)))}`")
+
+        # Everything else
+        other_missing = sorted(set(missing_weighted) - set(critical_missing) - set(important_missing))
+        if other_missing:
+            st.markdown("• **Nice to have:**")
+            st.markdown(f"`{', '.join(other_missing)}`")
     elif jd_terms:
         st.markdown("• ✅ Your resume already covers the key terms in this JD (consider adding measurable results/examples).")
     else:
         st.markdown("• (No clear keywords detected in the JD text. Try pasting the full JD.)")
 
-    if simple_matched:
-        st.markdown("• Already present in your resume:")
-        st.markdown(f"`{', '.join(simple_matched)}`")
-
-    st.markdown("• Tip: Put critical terms into **Experience bullets** (recent roles) and **Skills** for better ATS visibility.")
+    # Final tip
+    st.markdown("• Tip: Put **critical terms** into **recent Experience bullets** and **Skills** for better ATS visibility.")
 
 else:
     st.info("Please upload a resume and paste the job description to start the analysis.")
