@@ -1,0 +1,49 @@
+# ==== Scoring weights & thresholds (global defaults) ====
+
+weights:
+  critical: 3.0
+  important: 2.0
+  nice: 1.0
+
+# RapidFuzz partial_ratio thresholds (0–100)
+thresholds:
+  critical: 88
+  important: 82
+  nice: 75
+
+# ==== Guardrails to prevent unrealistic scores ====
+guardrails:
+  min_critical_pct: 55.0
+  max_gap: 35.0
+
+# ==== Optional per-profile overrides ====
+profiles:
+  rf:
+    weights:
+      critical: 3.5
+      important: 2.0
+      nice: 1.0
+    thresholds:
+      critical: 90
+      important: 84
+      nice: 75
+
+  qa:
+    weights:
+      critical: 3.2
+      important: 2.0
+      nice: 1.0
+    thresholds:
+      critical: 88
+      important: 83
+      nice: 75
+
+  general:
+    weights:
+      critical: 3.0
+      important: 2.0
+      nice: 1.0
+    thresholds:
+      critical: 88
+      important: 82
+      nice: 75

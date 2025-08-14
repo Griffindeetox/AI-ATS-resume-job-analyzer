@@ -1,0 +1,45 @@
+{
+  "profiles": {
+    "rf": {
+      "markers": [
+        "rf",
+        "radio",
+        "digital radio",
+        "microwave",
+        "antenna",
+        "vswr",
+        "v-swr",
+        "telephony",
+        "radio interference",
+        "rf optimization",
+        "drive test"
+      ],
+      "critical_add": [
+        "rf",
+        "digital radio",
+        "microwave",
+        "antenna",
+        "vswr"
+      ]
+    },
+    "qa": {
+      "markers": [
+        "qa",
+        "test case",
+        "manual testing",
+        "automation testing",
+        "selenium",
+        "cypress",
+        "postman",
+        "testrail",
+        "test plan",
+        "bug report"
+      ],
+      "critical_add": [
+        "qa",
+        "manual testing",
+        "test case"
+      ]
+    }
+  }
+}
