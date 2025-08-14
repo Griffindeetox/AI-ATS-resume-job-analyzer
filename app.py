@@ -5,6 +5,8 @@ import re
 import csv
 import nltk
 import spacy
+import os, json, yaml, time
+from typing import Tuple, Dict, Any
 from nltk.corpus import stopwords
 from docx import Document
 from striprtf.striprtf import rtf_to_text
@@ -49,6 +51,148 @@ st.markdown("---")
 nlp = spacy.load("en_core_web_sm")
 nltk.download("stopwords")
 stop_words = set(stopwords.words("english"))
+
+# =========================================================
+# ============ Auto-updating Configs (NEW) ================
+# =========================================================
+CFG_DIR = "config"
+DATA_DIR = "data"
+
+WEIGHTS_PATH  = os.path.join(CFG_DIR, "weights.yaml")
+PROFILES_PATH = os.path.join(CFG_DIR, "profiles.json")
+SYN_BASE_PATH = os.path.join(DATA_DIR, "synonyms.json")          # your base seed
+SYN_USER_PATH = os.path.join(DATA_DIR, "synonyms.user.json")     # learned via UI
+STOP_PATH     = os.path.join(DATA_DIR, "stop_phrases.json")
+TELEMETRY_PATH= os.path.join(DATA_DIR, "telemetry.jsonl")
+
+# Built-in minimum fallbacks so the app never crashes if files are missing
+BUILTIN_WEIGHTS = {
+    "weights": {"critical": 3.0, "important": 2.0, "nice": 1.0},
+    "thresholds": {"critical": 88, "important": 82, "nice": 75},
+    "guardrails": {"min_critical_pct": 55.0, "max_gap": 35.0},
+    "profiles": {
+        "rf": {"weights": {"critical": 3.5}, "thresholds": {"critical": 90, "important": 84, "nice": 75}},
+        "qa": {"weights": {"critical": 3.2}, "thresholds": {"critical": 88, "important": 83, "nice": 75}},
+    },
+}
+BUILTIN_PROFILES = {
+    "profiles": {
+        "rf": {
+            "markers": ["rf","radio","digital radio","microwave","antenna","vswr","v-swr","telephony","radio interference","rf optimization","drive test"],
+            "critical_add": ["rf","digital radio","microwave","antenna","vswr"]
+        },
+        "qa": {
+            "markers": ["qa","test case","manual testing","automation testing","selenium","cypress","postman","testrail","test plan","bug report"],
+            "critical_add": ["qa","manual testing","test case"]
+        }
+    }
+}
+BUILTIN_SYNONYMS = {
+    "quality assurance":"qa","qa testing":"qa","manual software qa testing":"qa",
+    "application programming interface":"api","web service":"api","soap api":"api","rest apis":"rest api",
+    "db":"database","data store":"database","sql database":"database",
+    "postgres":"postgresql","postgre sql":"postgresql",
+    "js":"javascript",
+    "customer support":"customer service","customers support":"customer service",
+    "end user":"customer","client":"customer","stakeholder":"customer",
+    "docs":"documentation","manual":"documentation","guides":"documentation","technical writing":"documentation",
+    "connect":"integration","api link":"integration","system integration":"integration",
+    "data transformation":"etl","data pipeline":"etl",
+    "radio frequency":"rf","radio-frequency":"rf","v-swr":"vswr","microwave link":"microwave backhaul"
+}
+BUILTIN_STOP = [
+    "3 5 year","3-5 years","3 to 5 years","bonus","audience","new","lot","high level",
+    "fully computer literate","driving license","availability to travel","security clearance","standby rotation",
+    "job description","responsibilities include","preferred qualifications","nice to have","about the company",
+    "our mission","perks and benefits","how to apply","contact us","location","requirements","benefits"
+]
+
+def _safe_read_json(path: str, default: Any) -> Any:
+    try:
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return default
+
+def _safe_read_yaml(path: str, default: Any) -> Any:
+    try:
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                return yaml.safe_load(f)
+    except Exception:
+        pass
+    return default
+
+def _ensure_files():
+    os.makedirs(CFG_DIR, exist_ok=True)
+    os.makedirs(DATA_DIR, exist_ok=True)
+    if not os.path.exists(WEIGHTS_PATH):   open(WEIGHTS_PATH, "w").write(yaml.safe_dump(BUILTIN_WEIGHTS, sort_keys=False))
+    if not os.path.exists(PROFILES_PATH):  open(PROFILES_PATH, "w").write(json.dumps(BUILTIN_PROFILES, indent=2))
+    if not os.path.exists(SYN_BASE_PATH):  open(SYN_BASE_PATH, "w").write(json.dumps(BUILTIN_SYNONYMS, indent=2))
+    if not os.path.exists(SYN_USER_PATH):  open(SYN_USER_PATH, "w").write(json.dumps({}, indent=2))
+    if not os.path.exists(STOP_PATH):      open(STOP_PATH, "w").write(json.dumps(BUILTIN_STOP, indent=2))
+    if not os.path.exists(TELEMETRY_PATH): open(TELEMETRY_PATH, "a").close()
+
+def _load_configs():
+    weights = _safe_read_yaml(WEIGHTS_PATH, BUILTIN_WEIGHTS)
+    profiles = _safe_read_json(PROFILES_PATH, BUILTIN_PROFILES)
+    syn_base = _safe_read_json(SYN_BASE_PATH, BUILTIN_SYNONYMS)
+    syn_user = _safe_read_json(SYN_USER_PATH, {})
+    synonyms = {**syn_base, **syn_user}
+    stops = _safe_read_json(STOP_PATH, BUILTIN_STOP)
+    mtimes = {
+        "weights": os.path.getmtime(WEIGHTS_PATH) if os.path.exists(WEIGHTS_PATH) else 0,
+        "profiles":os.path.getmtime(PROFILES_PATH) if os.path.exists(PROFILES_PATH) else 0,
+        "syn_base":os.path.getmtime(SYN_BASE_PATH) if os.path.exists(SYN_BASE_PATH) else 0,
+        "syn_user":os.path.getmtime(SYN_USER_PATH) if os.path.exists(SYN_USER_PATH) else 0,
+        "stops":  os.path.getmtime(STOP_PATH) if os.path.exists(STOP_PATH) else 0,
+    }
+    return weights, profiles, synonyms, stops, mtimes
+
+def _hot_reload_if_changed(state_key="cfg_mtimes"):
+    mtimes_now = {
+        "weights": os.path.getmtime(WEIGHTS_PATH) if os.path.exists(WEIGHTS_PATH) else 0,
+        "profiles":os.path.getmtime(PROFILES_PATH) if os.path.exists(PROFILES_PATH) else 0,
+        "syn_base":os.path.getmtime(SYN_BASE_PATH) if os.path.exists(SYN_BASE_PATH) else 0,
+        "syn_user":os.path.getmtime(SYN_USER_PATH) if os.path.exists(SYN_USER_PATH) else 0,
+        "stops":  os.path.getmtime(STOP_PATH) if os.path.exists(STOP_PATH) else 0,
+    }
+    old = st.session_state.get(state_key)
+    if old is None or any(mtimes_now[k] != old.get(k, -1) for k in mtimes_now):
+        (st.session_state["weights_cfg"],
+         st.session_state["profiles_cfg"],
+         st.session_state["synonyms"],
+         st.session_state["stop_phrases"],
+         st.session_state[state_key]) = _load_configs()
+        st.toast("Configs reloaded ✅", icon="🔄")
+
+# Ensure config files, load once, and hot-reload on changes
+_ensure_files()
+if "weights_cfg" not in st.session_state:
+    (st.session_state["weights_cfg"],
+     st.session_state["profiles_cfg"],
+     st.session_state["synonyms"],
+     st.session_state["stop_phrases"],
+     st.session_state["cfg_mtimes"]) = _load_configs()
+_hot_reload_if_changed()
+
+# Sidebar admin quick action
+st.sidebar.markdown("---")
+if st.sidebar.button("🔄 Reload configs"):
+    (st.session_state["weights_cfg"],
+     st.session_state["profiles_cfg"],
+     st.session_state["synonyms"],
+     st.session_state["stop_phrases"],
+     st.session_state["cfg_mtimes"]) = _load_configs()
+    st.success("Configs reloaded from disk.")
+
+# Handy local variables
+WEIGHTS_CFG  = st.session_state["weights_cfg"]
+PROFILES_CFG = st.session_state["profiles_cfg"]
+SYNONYMS_MAP = st.session_state["synonyms"]
+STOP_PHRASES = set(map(str.lower, st.session_state["stop_phrases"]))
 
 # ---------------- File text extractors ----------------
 def extract_text_from_pdf(file_obj) -> str:
@@ -97,24 +241,8 @@ ALLOWED_VERBS = {
     "analyze", "analysis"
 }
 
-# Synonym folding both for extraction and matching
-SYNONYMS = {
-    "quality assurance": "qa",
-    "qa testing": "qa",
-    "manual software qa testing": "qa",
-    "rest apis": "rest api",
-    "http status codes": "http status",
-    "customer support": "customer service",
-    "customers support": "customer service",
-    "js": "javascript",
-    "postgres": "postgresql",
-    "postgre sql": "postgresql",
-    "data transformation": "etl",
-    "data pipeline": "etl",
-}
-
 ACRONYM_PATTERN = re.compile(r"\b[A-Z]{2,6}\b")                      # QA, API, ETL, SQL, HTTP, REST, CRM...
-CODEY_PATTERN   = re.compile(r"[A-Za-z0-9]+(?:[-_/][A-Za-z0-9]+)+")  # AZ-104, DHIS2-like, etc.
+CODEY_PATTERN   = re.compile(r"[A-Za-z0-9]+(?:[-_/][A-Za-z0-9]+)+")
 
 def _normalize_phrase(words):
     lemmas = []
@@ -122,17 +250,25 @@ def _normalize_phrase(words):
         if t.is_space or t.is_punct:
             continue
         lemma = t.lemma_.lower().strip()
-        if lemma and lemma not in stop_words:
+        if lemma and lemma not in stop_words and lemma not in STOP_PHRASES:
             lemmas.append(lemma)
     if not lemmas:
         return ""
     phrase = " ".join(lemmas)
-    phrase = SYNONYMS.get(phrase, phrase)
+    phrase = SYNONYMS_MAP.get(phrase, phrase)
     phrase = re.sub(r"\s{2,}", " ", phrase)
     return phrase
 
+def normalize_term(t: str) -> str:
+    t = t.lower().strip()
+    return SYNONYMS_MAP.get(t, t)
+
 def extract_terms(text: str) -> set:
-    doc = nlp(text)
+    # remove global stop phrases up-front
+    low = text.lower()
+    for p in STOP_PHRASES:
+        low = low.replace(p, " ")
+    doc = nlp(low)
     terms = set()
 
     # 1) Single tokens
@@ -152,15 +288,15 @@ def extract_terms(text: str) -> set:
 
         if tok.pos_ in {"NOUN", "PROPN"}:
             lemma = tok.lemma_.lower().strip()
-            if lemma and lemma not in stop_words:
-                terms.add(SYNONYMS.get(lemma, lemma))
+            if lemma and lemma not in stop_words and lemma not in STOP_PHRASES:
+                terms.add(SYNONYMS_MAP.get(lemma, lemma))
             continue
 
         if tok.pos_ == "VERB":
             lemma = tok.lemma_.lower().strip()
-            if lemma in ALLOWED_VERBS:
+            if lemma in ALLOWED_VERBS and lemma not in STOP_PHRASES:
                 terms.add(lemma)
-                if lemma.endswith("e"):  # add -ing nouny form
+                if lemma.endswith("e"):
                     terms.add(lemma[:-1] + "ing")
                 else:
                     terms.add(lemma + "ing")
@@ -182,21 +318,16 @@ def extract_terms(text: str) -> set:
     # 3) Post-normalization folding
     normalized = set()
     for t in terms:
-        t2 = SYNONYMS.get(t, t)
+        t2 = SYNONYMS_MAP.get(t, t)
         t2 = re.sub(r"\s{2,}", " ", t2.strip())
-        if t2:
+        if t2 and t2 not in STOP_PHRASES:
             normalized.add(t2)
 
     return normalized
 
 # ---------------- Matching helpers (exact, synonym, fuzzy) ----------------
-SCORING_CONFIG = {
-    "weights": { "critical": 3.0, "important": 2.0, "nice": 1.0 },
-    "thresholds": { "critical": 85, "important": 80, "nice": 75 }  # RapidFuzz partial_ratio thresholds
-}
-
 CATEGORY_HINTS = {
-    # Critical JD concepts for QA/API roles
+    # Critical JD concepts for QA/API roles (extendable via profiles later)
     "qa": "critical",
     "manual testing": "critical",
     "test case": "critical",
@@ -224,33 +355,35 @@ CATEGORY_HINTS = {
     "remote-first": "important",
 }
 
-def normalize_term(t: str) -> str:
-    t = t.lower().strip()
-    return SYNONYMS.get(t, t)
-
 def expand_synonyms(term: str) -> set:
-    term = normalize_term(term)
-    variants = {term}
-    # reverse lookup in SYNONYMS (value -> keys)
-    for k, v in SYNONYMS.items():
-        if v == term:
+    base = normalize_term(term)
+    variants = {base}
+    # reverse lookup
+    for k, v in SYNONYMS_MAP.items():
+        if v == base:
             variants.add(k)
-    # simple plural/singular variants
-    if not term.endswith("s"):
-        variants.add(term + "s")
+    if not base.endswith("s"):
+        variants.add(base + "s")
     else:
-        variants.add(term.rstrip("s"))
+        variants.add(base.rstrip("s"))
     return {normalize_term(v) for v in variants}
 
-def categorize_term(term: str) -> str:
-    t = normalize_term(term)
-    if t in CATEGORY_HINTS:
-        return CATEGORY_HINTS[t]
-    if any(k in t for k in ["qa", "rest api", "api", "http status", "javascript", "etl", "integration", "sql", "postgresql", "test case"]):
-        return "critical"
-    if any(k in t for k in ["troubleshoot", "debug", "documentation", "customer service", "salesforce", "dhis2", "commcare", "kobo toolbox", "openmrs", "remote"]):
-        return "important"
-    return "nice"
+# Build scoring config from weights.yaml (instead of hard-coded)
+def get_scoring_config():
+    w = WEIGHTS_CFG.get("weights", {})
+    t = WEIGHTS_CFG.get("thresholds", {})
+    return {
+        "weights": {
+            "critical": float(w.get("critical", 3.0)),
+            "important": float(w.get("important", 2.0)),
+            "nice": float(w.get("nice", 1.0)),
+        },
+        "thresholds": {
+            "critical": int(t.get("critical", 88)),
+            "important": int(t.get("important", 82)),
+            "nice": int(t.get("nice", 75)),
+        }
+    }
 
 # Precompiled token regex (FIXED: safe dash placement/escaping)
 TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9\-\/ ]{1,40}")
@@ -277,7 +410,7 @@ def any_exact_or_fuzzy_match(term: str, resume_terms: set, resume_text: str, thr
             if fuzz.partial_ratio(s, rt) >= threshold:
                 return True, "fuzzy-terms"
 
-    # 3) fuzzy vs raw text (backup) — uses fixed/safer regex
+    # 3) fuzzy vs raw text (backup)
     tokens = set(TOKEN_RE.findall(resume_text.lower()))
     for tok in tokens:
         if fuzz.partial_ratio(base, tok) >= threshold:
@@ -288,7 +421,18 @@ def any_exact_or_fuzzy_match(term: str, resume_terms: set, resume_text: str, thr
 
     return False, "no"
 
+def categorize_term(term: str) -> str:
+    t = normalize_term(term)
+    if t in CATEGORY_HINTS:
+        return CATEGORY_HINTS[t]
+    if any(k in t for k in ["qa","rest api","api","http status","javascript","etl","integration","sql","postgresql","test case"]):
+        return "critical"
+    if any(k in t for k in ["troubleshoot","debug","documentation","customer service","salesforce","dhis2","commcare","kobo toolbox","openmrs","remote"]):
+        return "important"
+    return "nice"
+
 def score_weighted(jd_terms: set, resume_terms: set, resume_text: str):
+    SCORING_CONFIG = get_scoring_config()
     items = []
     total_possible = 0.0
     total_earned = 0.0
@@ -450,6 +594,25 @@ if resume_file and jd_text.strip():
         st.markdown("• ✅ Your resume already covers the key terms in this JD (consider adding measurable results/examples).")
     else:
         st.markdown("• (No clear keywords detected in the JD text. Try pasting the full JD.)")
+
+    # Learn synonyms (saved into data/synonyms.user.json)
+    with st.expander("Mark a missing JD term as equivalent to a resume term (learn a synonym)"):
+        miss = st.text_input("Missing term (from JD):", key="miss_term")
+        present = st.text_input("Equivalent term in your resume:", key="present_term")
+        if st.button("Save synonym"):
+            if miss and present:
+                try:
+                    user_syn = _safe_read_json(SYN_USER_PATH, {})
+                    user_syn[miss.lower()] = present.lower()
+                    with open(SYN_USER_PATH, "w", encoding="utf-8") as f:
+                        json.dump(user_syn, f, indent=2)
+                    st.success(f"Saved: '{miss}' ≈ '{present}'.")
+                    # Refresh merged synonyms in-session
+                    base_syn = _safe_read_json(SYN_BASE_PATH, BUILTIN_SYNONYMS)
+                    st.session_state["synonyms"] = {**base_syn, **user_syn}
+                    st.session_state["cfg_mtimes"]["syn_user"] = os.path.getmtime(SYN_USER_PATH)
+                except Exception as e:
+                    st.error(f"Could not save synonym: {e}")
 
     # Final tip
     st.markdown("• Tip: Put **critical terms** into **recent Experience bullets** and **Skills** for better ATS visibility.")
